@@ -23,7 +23,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amc-tentpole-skill-test-'));
 function run(command, input, extras = []) {
   return spawnSync(process.execPath, [runner, command, `--input=${input}`, ...extras], { encoding: 'utf8' });
 }
-function writeCsv(file, labels, zeroMask = null, allZero = false) {
+function writeCsv(file, labels, zeroMask = null, allZero = false, overrides = {}) {
   const lines = [fields.join(',')];
   for (const mask of masks) {
     const tokens = [1, 2, 4].filter(bit => mask & bit).map(bit => labels[bit]);
@@ -42,6 +42,7 @@ function writeCsv(file, labels, zeroMask = null, allZero = false) {
       average_daily_impressions: 100, dpv_rate: 0.01,
       purchase_rate: 0.02, ntb_rate: 0.01
     };
+    Object.assign(row, overrides[mask] ?? {});
     lines.push(fields.map(field => `"${String(row[field]).replace(/"/g, '""')}"`).join(','));
   }
   fs.writeFileSync(file, '\uFEFF' + lines.join('\r\n'), 'utf8');
@@ -55,6 +56,8 @@ class Element {
   getAttribute(name) { return this.attrs[name] ?? null; }
   removeAttribute(name) { delete this.attrs[name]; }
   addEventListener(name, listener) { this.listeners[name] = listener; }
+  click() { this.listeners.click?.(); }
+  remove() {}
 }
 function render(htmlFile) {
   const html = fs.readFileSync(htmlFile, 'utf8');
@@ -62,6 +65,7 @@ function render(htmlFile) {
   assert(script, 'embedded script exists');
   const ids = ['k-sales', 'k-spend', 'k-reach', 'k-roas', 'days-chart', 'volume-chart', 'phase-roas-chart', 'volume-readout', 'roas-spend-readout', 'detail-body', 'download-detail'];
   const elements = Object.fromEntries(ids.map(id => [id, new Element(id)]));
+  let downloadedCsv = '';
   const document = {
     getElementById: id => elements[id] ?? null,
     createElement: tag => new Element(tag),
@@ -69,7 +73,13 @@ function render(htmlFile) {
     querySelectorAll: () => [],
     addEventListener() {}, body: new Element('body')
   };
-  vm.runInNewContext(script, { document, window: { addEventListener() {} }, console });
+  vm.runInNewContext(script, {
+    document, window: { addEventListener() {} }, console,
+    Blob: class { constructor(parts) { downloadedCsv = parts.join(''); } },
+    URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
+    setTimeout: callback => callback()
+  });
+  elements.downloadedCsv = () => downloadedCsv;
   return elements;
 }
 
@@ -122,12 +132,51 @@ try {
   assert.strictEqual(ui['k-roas'].textContent, '—');
   assert.strictEqual(ui['phase-roas-chart'].children.filter(item => item.tag === 'circle').length, 0);
 
+  const blankFile = path.join(dir, 'zero-witness-blanks.csv');
+  writeCsv(blankFile, { 1: '1', 2: '2', 4: '3' }, null, false, {
+    7: { unique_viewers: 0, dpv: '' },
+    3: { unique_purchasers: 0, unique_ntb_purchasers: 0, sales: '', ntb_sales: '', roas: '', sales_percentage: '' }
+  });
+  const blankInspection = run('inspect', blankFile);
+  assert.strictEqual(blankInspection.status, 0, blankInspection.stderr);
+  assert.strictEqual(JSON.parse(blankInspection.stdout).inferred_zero.length, 3);
+  assert.strictEqual(JSON.parse(blankInspection.stdout).unresolved_blank.length, 0);
+  assert.strictEqual(JSON.parse(blankInspection.stdout).blank_derived.length, 2);
+  built = run('build', blankFile, [`--map-file=${mapFile}`, `--output=${output}`]);
+  assert.strictEqual(built.status, 0, built.stderr);
+  ui = render(output);
+  assert.notStrictEqual(ui['k-sales'].textContent, '—');
+  assert.strictEqual(ui['phase-roas-chart'].children.filter(item => item.tag === 'circle').length, 7);
+  assert.match(ui['detail-body'].children.find(item => item.dataset.id === 'up-event').innerHTML, /<td>0\.00<\/td>/);
+
+  writeCsv(blankFile, { 1: '1', 2: '2', 4: '3' }, null, false, {
+    3: { sales: '', roas: '' },
+    7: { dpv: '' }
+  });
+  const unknownInspection = run('inspect', blankFile);
+  assert.strictEqual(unknownInspection.status, 0, unknownInspection.stderr);
+  assert.deepStrictEqual(new Set(JSON.parse(unknownInspection.stdout).unresolved_blank.map(item => item.field)), new Set(['sales', 'dpv']));
+  built = run('build', blankFile, [`--map-file=${mapFile}`, `--output=${output}`]);
+  assert.strictEqual(built.status, 0, built.stderr);
+  ui = render(output);
+  assert.strictEqual(ui['k-sales'].textContent, '—');
+  assert.strictEqual(ui['k-roas'].textContent, '—');
+  assert.strictEqual(ui['phase-roas-chart'].children.filter(item => item.tag === 'circle').length, 6);
+  assert.strictEqual(ui['volume-chart'].children.filter(item => item.tag === 'rect' && item.attrs.class === 'volume-bar').length, 20);
+  assert.match(ui['detail-body'].children.find(item => item.dataset.id === 'up-event').innerHTML, /<td>—<\/td>/);
+  ui['download-detail'].listeners.click();
+  assert.doesNotMatch(ui.downloadedCsv(), /null|NaN/);
+  assert.match(ui.downloadedCsv(), /"预热 \+ 活动","[^"]+","",""/);
+
+  writeCsv(blankFile, { 1: '1', 2: '2', 4: '3' }, null, false, { 1: { duration_days: '' } });
+  assert.notStrictEqual(run('inspect', blankFile).status, 0, 'missing duration must fail');
+
   const badFile = path.join(dir, 'bad.csv');
   fs.writeFileSync(badFile, 'tentpole_path,sales\n[1],10', 'utf8');
   assert.notStrictEqual(run('inspect', badFile).status, 0, 'missing fields must fail');
   fs.writeFileSync(mapFile, JSON.stringify({ '1': '预热', '2': '活动', '3': '未知' }), 'utf8');
   assert.notStrictEqual(run('build', numericFile, [`--map-file=${mapFile}`, `--output=${output}`]).status, 0, 'unconfirmed stage must fail');
-  console.log('Self-test passed: numeric and arbitrary Chinese paths, permutation, zero spend, chart interaction, missing fields, invalid mapping.');
+  console.log('Self-test passed: path mapping, zero spend, evidence-based blank values, unresolved blanks, chart interaction, missing duration and fields.');
 } finally {
   if (path.dirname(dir) !== os.tmpdir() || !path.basename(dir).startsWith('amc-tentpole-skill-test-')) throw new Error('Unsafe temporary cleanup target');
   fs.rmSync(dir, { recursive: true, force: true });

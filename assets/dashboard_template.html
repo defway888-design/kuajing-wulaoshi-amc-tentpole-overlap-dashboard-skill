@@ -112,15 +112,16 @@ td{font-size:13px}
     'use strict';
     // Exact numeric fields needed by this view, copied from the supplied AMC CSV.
     const data = __TENTPOLE_DATA__;
-    const sum = key => data.reduce((n,d)=>n+d[key],0);
+    const known = n => typeof n === 'number' && Number.isFinite(n);
+    const sum = key => data.every(d=>known(d[key])) ? data.reduce((n,d)=>n+d[key],0) : null;
     const totals = {reach:sum('reach'),sales:sum('sales'),spend:sum('spend'),buyers:sum('buyers'),ntbBuyers:sum('ntbBuyers')};
     const byId = id => data.find(d=>d.id===id);
-    const money = n => Number(n).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const integer = n => Number(n).toLocaleString('zh-CN');
-    const pct = (n,d,precision=1) => d>0 ? (n/d*100).toFixed(precision)+'%' : '—';
-    const roas = d => d.spend>0 ? d.sales/d.spend : null;
+    const money = n => known(n) ? n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+    const integer = n => known(n) ? n.toLocaleString('zh-CN') : '—';
+    const pct = (n,d,precision=1) => known(n) && known(d) && d>0 ? (n/d*100).toFixed(precision)+'%' : '—';
+    const roas = d => known(d.sales) && known(d.spend) && d.spend>0 ? d.sales/d.spend : null;
     const roasText = d => roas(d)===null ? '—' : roas(d).toFixed(2);
-    const rate = d => d.buyers/d.reach;
+    const rate = d => known(d.buyers) && known(d.reach) && d.reach>0 ? d.buyers/d.reach : null;
     const $ = id => document.getElementById(id);
     const phaseOrder=['up','event','out','up-event','all','event-out','up-out'];
     const chartColors=Object.freeze({reach:'#2563eb',dpv:'#d65a14',buyers:'#11875d',roas:'#d65a14',spend:'#2563eb'});
@@ -160,7 +161,7 @@ td{font-size:13px}
         {key:'buyers',label:'购买人数',color:chartColors.buyers,axisClass:'green',axisX:width-right+94,anchor:'start'}
       ];
       series.forEach(spec=>{
-        const peak=Math.max(1,...fixed.map(d=>d[spec.key]));
+        const peak=Math.max(1,...fixed.map(d=>known(d[spec.key]) ? d[spec.key] : 0));
         const unit=Math.pow(10,Math.floor(Math.log10(peak/4)));
         spec.axisMax=Math.max(4,Math.ceil(peak/unit)*unit);
         chart.appendChild(svgEl('text',{class:'volume-axis '+spec.axisClass,x:spec.axisX,y:37,'text-anchor':spec.anchor},spec.label));
@@ -174,6 +175,7 @@ td{font-size:13px}
         const center=left+(index+.5)*step;
         series.forEach((spec,seriesIndex)=>{
           const value=d[spec.key];
+          if(!known(value)) return;
           const proportionalHeight=value/spec.axisMax*plotHeight;
           const barHeight=value>0?Math.max(6,proportionalHeight):0;
           const bar=svgEl('rect',{class:'volume-bar',x:center+(seriesIndex-1)*29-11,y:base-barHeight,width:22,height:barHeight,fill:spec.color,rx:3});
@@ -209,7 +211,7 @@ td{font-size:13px}
   const plotHeight = base - top;
   const step = (width - left - right) / fixed.length;
   const roasMax = Math.max(0.5, Math.ceil(Math.max(...fixed.map(d => roas(d) ?? 0)) * 1.1 * 10) / 10);
-  const largestSpend = Math.max(1, ...fixed.map(d => d.spend));
+  const largestSpend = Math.max(1, ...fixed.map(d => known(d.spend) ? d.spend : 0));
   const spendUnit = Math.pow(10, Math.floor(Math.log10(largestSpend)));
   const spendMax = Math.ceil(largestSpend / spendUnit) * spendUnit;
   chart.setAttribute('viewBox', `0 0 ${width} ${height}`);
@@ -226,9 +228,11 @@ td{font-size:13px}
   const points = [];
   fixed.forEach((d, index) => {
     const center = left + (index + .5) * step;
-    const barHeight = d.spend / spendMax * plotHeight;
-    const bar = svgEl('rect', { class: 'volume-bar', x: center - 30, y: base - barHeight, width: 60, height: barHeight, fill: chartColors.spend, rx: 3 });
-    chart.appendChild(bar);
+    if (known(d.spend)) {
+      const barHeight = d.spend / spendMax * plotHeight;
+      const bar = svgEl('rect', { class: 'volume-bar', x: center - 30, y: base - barHeight, width: 60, height: barHeight, fill: chartColors.spend, rx: 3 });
+      chart.appendChild(bar);
+    }
     points.push({ center, y: roas(d)===null ? null : base - roas(d) / roasMax * plotHeight, d });
     const label = svgEl('text', { class: 'volume-x', x: center, y: 305, 'text-anchor': 'middle' });
     const parts = d.id === 'all' ? ['预热+活动', '+返场'] : [d.name.replace(/ /g, '')];
@@ -263,11 +267,14 @@ td{font-size:13px}
 }
     function renderTable(){
       const host=$('detail-body');host.replaceChildren();
-      ordered().forEach(d=>{const tr=document.createElement('tr');tr.dataset.id=d.id;tr.className=d.id===activeId?'active':'';tr.tabIndex=0;tr.setAttribute('aria-label',d.name+'，选中该组合');tr.innerHTML='<td><b>'+d.name+'</b>'+(d.buyers<=10?'<span class="flags" title="购买者不超过10人">小样本</span>':'')+'</td><td>'+integer(d.reach)+'</td><td>'+money(d.sales)+'</td><td>'+pct(d.sales,totals.sales,2)+'</td><td>'+money(d.spend)+'</td><td>'+roasText(d)+'</td><td>'+integer(d.buyers)+'</td><td>'+pct(d.buyers,d.reach,2)+'</td><td>'+integer(d.ntbBuyers)+'</td><td>'+d.days+'</td>';tr.addEventListener('click',()=>select(d.id));tr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(d.id)}});host.appendChild(tr)});
+      ordered().forEach(d=>{const tr=document.createElement('tr');tr.dataset.id=d.id;tr.className=d.id===activeId?'active':'';tr.tabIndex=0;tr.setAttribute('aria-label',d.name+'，选中该组合');tr.innerHTML='<td><b>'+d.name+'</b>'+(known(d.buyers)&&d.buyers<=10?'<span class="flags" title="购买者不超过10人">小样本</span>':'')+'</td><td>'+integer(d.reach)+'</td><td>'+money(d.sales)+'</td><td>'+pct(d.sales,totals.sales,2)+'</td><td>'+money(d.spend)+'</td><td>'+roasText(d)+'</td><td>'+integer(d.buyers)+'</td><td>'+pct(d.buyers,d.reach,2)+'</td><td>'+integer(d.ntbBuyers)+'</td><td>'+d.days+'</td>';tr.addEventListener('click',()=>select(d.id));tr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(d.id)}});host.appendChild(tr)});
     }
     function downloadDetail(){
       const headers=['触达阶段组合','触达人数','销售额','销售占比','广告费','ROAS','购买者','购买率','新客购买者','阶段天数'];
-      const rows=ordered().map(d=>[d.name,d.reach,d.sales.toFixed(2),pct(d.sales,totals.sales,2),d.spend.toFixed(2),roasText(d),d.buyers,pct(d.buyers,d.reach,2),d.ntbBuyers,d.days]);
+      const csvNumber=n=>known(n)?n:'';
+      const csvMoney=n=>known(n)?n.toFixed(2):'';
+      const csvPct=(n,d)=>known(n)&&known(d)&&d>0?pct(n,d,2):'';
+      const rows=ordered().map(d=>[d.name,csvNumber(d.reach),csvMoney(d.sales),csvPct(d.sales,totals.sales),csvMoney(d.spend),roas(d)===null?'':roasText(d),csvNumber(d.buyers),csvPct(d.buyers,d.reach),csvNumber(d.ntbBuyers),d.days]);
       const cell=value=>'"'+String(value).replace(/"/g,'""')+'"';
       const csv=[headers,...rows].map(row=>row.map(cell).join(',')).join('\r\n');
       const url=URL.createObjectURL(new Blob(['\uFEFF',csv],{type:'text/csv;charset=utf-8'}));
@@ -300,7 +307,7 @@ td{font-size:13px}
       window.addEventListener('resize',hide);
     }
     function init(){
-      $('k-sales').textContent=money(totals.sales);$('k-spend').textContent=money(totals.spend);$('k-reach').textContent=integer(totals.reach);$('k-roas').textContent=totals.spend>0?(totals.sales/totals.spend).toFixed(2):'—';$('download-detail').addEventListener('click',downloadDetail);setupKpiTooltips();renderVolumeChart();renderPhaseRoasChart();render();
+      $('k-sales').textContent=money(totals.sales);$('k-spend').textContent=money(totals.spend);$('k-reach').textContent=integer(totals.reach);$('k-roas').textContent=known(totals.sales)&&known(totals.spend)&&totals.spend>0?(totals.sales/totals.spend).toFixed(2):'—';$('download-detail').addEventListener('click',downloadDetail);setupKpiTooltips();renderVolumeChart();renderPhaseRoasChart();render();
     }
     init();
   </script>

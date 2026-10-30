@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const vm = require('vm');
 
 const TEMPLATE = path.join(__dirname, '..', 'assets', 'dashboard_template.html');
-const TEMPLATE_SHA256 = '688e49bbfeaa025550b1fcd5218ac16da0adde27514af130109439f7c840acf3';
+const TEMPLATE_SHA256 = 'd96f02f741a13dcad215d5e107d92aee7472f2b4ad059d9a302fe756e4d57628';
 const STAGES = ['预热', '活动', '返场'];
 const ORDER = [
   { mask: 1, id: 'up', name: '仅预热' },
@@ -34,6 +34,11 @@ const SHARE_FIELDS = [
   'unique_reach_percentage', 'sales_percentage',
   'unique_ntb_purchasers_percentage'
 ];
+const DERIVED_FIELDS = new Set([
+  'roas', 'unique_reach_percentage', 'sales_percentage',
+  'unique_ntb_purchasers_percentage', 'average_daily_impressions',
+  'dpv_rate', 'purchase_rate', 'ntb_rate'
+]);
 const STAGE_BIT = { '预热': 1, '活动': 2, '返场': 4 };
 
 function fail(message) { throw new Error(message); }
@@ -96,9 +101,16 @@ function inspect(input) {
   const csv = parseCsv(text);
   const examples = new Map();
   const numeric = new Map();
+  const inferredZero = [];
+  const unresolvedBlank = [];
+  const blankDerived = [];
   for (const [index, row] of csv.rows.entries()) {
     for (const field of FIELDS.slice(1)) {
-      if (row[field].trim() === '') fail(`第 ${index + 2} 行 ${field} 为空`);
+      if (row[field].trim() === '') {
+        if (field === 'duration_days') fail(`第 ${index + 2} 行 duration_days 为空；无法核对阶段覆盖天数`);
+        row[field] = null;
+        continue;
+      }
       const number = Number(row[field]);
       if (!Number.isFinite(number) || number < 0) fail(`第 ${index + 2} 行 ${field} 不是非负数`);
       if (INTEGER_FIELDS.includes(field) && !Number.isInteger(number)) fail(`第 ${index + 2} 行 ${field} 应为整数`);
@@ -106,9 +118,24 @@ function inspect(input) {
       if (SHARE_FIELDS.includes(field) && number > 1.0001) fail(`第 ${index + 2} 行 ${field} 超出 0–1 范围`);
       row[field] = number;
     }
-    if (row.unique_ntb_purchasers > row.unique_purchasers) fail(`第 ${index + 2} 行新客购买人数超过总购买人数`);
-    if (row.unique_purchasers > row.unique_reach_purchase) fail(`第 ${index + 2} 行购买人数超过购买口径触达人数`);
-    if (row.ad_spend > 0 && Math.abs(row.sales / row.ad_spend - row.roas) > 0.021) fail(`第 ${index + 2} 行 ROAS 与销售额／广告花费不一致`);
+    for (const [field, witness] of [
+      ['dpv', 'unique_viewers'],
+      ['sales', 'unique_purchasers'],
+      ['ntb_sales', 'unique_ntb_purchasers']
+    ]) {
+      if (row[field] === null && row[witness] === 0) {
+        row[field] = 0;
+        inferredZero.push({ row: index + 2, path: row.tentpole_path, field, evidence: `${witness}=0` });
+      }
+    }
+    for (const field of FIELDS.slice(1)) {
+      if (row[field] === null) {
+        (DERIVED_FIELDS.has(field) ? blankDerived : unresolvedBlank).push({ row: index + 2, path: row.tentpole_path, field });
+      }
+    }
+    if (row.unique_ntb_purchasers !== null && row.unique_purchasers !== null && row.unique_ntb_purchasers > row.unique_purchasers) fail(`第 ${index + 2} 行新客购买人数超过总购买人数`);
+    if (row.unique_purchasers !== null && row.unique_reach_purchase !== null && row.unique_purchasers > row.unique_reach_purchase) fail(`第 ${index + 2} 行购买人数超过购买口径触达人数`);
+    if (row.ad_spend !== null && row.ad_spend > 0 && row.sales !== null && row.roas !== null && Math.abs(row.sales / row.ad_spend - row.roas) > 0.021) fail(`第 ${index + 2} 行 ROAS 与销售额／广告花费不一致`);
     const tokens = pathTokens(row.tentpole_path);
     if (new Set(tokens.map(token => token.key)).size !== tokens.length) fail(`同一 tentpole_path 中重复出现阶段：${row.tentpole_path}`);
     for (const token of tokens) {
@@ -121,7 +148,10 @@ function inspect(input) {
   return {
     input, source_sha256: sha256(bytes), csv,
     rows: csv.rows, tokens: numeric,
-    phase_keys: keys.map(([key, names]) => ({ key, examples: [...names] }))
+    phase_keys: keys.map(([key, names]) => ({ key, examples: [...names] })),
+    inferred_zero: inferredZero,
+    unresolved_blank: unresolvedBlank,
+    blank_derived: blankDerived
   };
 }
 
@@ -177,12 +207,16 @@ function build(input, mapFile, output) {
   const saved = fs.readFileSync(output, 'utf8');
   if (saved !== html) fail('看板写入后校验失败');
   const sum = field => data.reduce((total, item) => total + item[field], 0);
+  const completeSum = field => data.every(item => item[field] !== null) ? sum(field) : null;
+  const sales = completeSum('sales');
+  const spend = completeSum('spend');
   return {
     output: path.resolve(output), source_sha256: inspection.source_sha256,
     template_sha256: TEMPLATE_SHA256, rows: data.length, phase_map: mapping,
-    sales: sum('sales'), ad_spend: sum('spend'),
-    unique_reach_purchase: sum('reach'), unique_purchasers: sum('buyers'),
-    roas: sum('spend') > 0 ? sum('sales') / sum('spend') : null
+    inferred_zero: inspection.inferred_zero, unresolved_blank: inspection.unresolved_blank, blank_derived: inspection.blank_derived,
+    sales, ad_spend: spend,
+    unique_reach_purchase: completeSum('reach'), unique_purchasers: completeSum('buyers'),
+    roas: sales !== null && spend !== null && spend > 0 ? sales / spend : null
   };
 }
 
@@ -197,7 +231,7 @@ try {
   if (!input) fail('请提供 --input=已上传CSV路径');
   if (command === 'inspect') {
     const result = inspect(input);
-    console.log(JSON.stringify({ source_sha256: result.source_sha256, row_count: result.rows.length, column_count: result.csv.headers.length, phase_keys: result.phase_keys, tentpole_paths: result.rows.map(row => row.tentpole_path) }, null, 2));
+    console.log(JSON.stringify({ source_sha256: result.source_sha256, row_count: result.rows.length, column_count: result.csv.headers.length, phase_keys: result.phase_keys, tentpole_paths: result.rows.map(row => row.tentpole_path), inferred_zero: result.inferred_zero, unresolved_blank: result.unresolved_blank, blank_derived: result.blank_derived }, null, 2));
   } else if (command === 'build') {
     const mapFile = argument('map-file');
     const output = argument('output');
