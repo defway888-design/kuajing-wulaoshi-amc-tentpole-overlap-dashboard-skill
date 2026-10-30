@@ -104,7 +104,7 @@ td{font-size:13px}
     <section class="panel days-panel"><div class="sectionhead"><h2>不同阶段覆盖天数</h2></div><div id="days-chart"></div></section>
 
     <div class="sectionhead"><h2>各阶段组合的触达、详情页浏览、购买人数</h2></div>
-    <section class="panel"><div class="chart-legend-head"><div class="legend"><span><i class="dot cyan"></i>触达人数（÷100）· 柱形</span><span><i class="dot orange"></i>详情页浏览次数 · 柱形</span><span><i class="dot green line-key"></i>购买人数 · 折线</span></div></div><div class="volume-scroll"><svg id="volume-chart" role="group" aria-label="七种阶段组合的触达、详情页浏览柱形图与购买人数折线图；触达人数除以一百后与浏览、购买原值共用线性刻度；点选组合查看原始准确数值"></svg></div><div id="volume-readout" class="volume-readout" aria-live="polite"></div></section>
+    <section class="panel"><div class="chart-legend-head"><div class="legend"><span><i class="dot cyan"></i>触达人数（÷100）· 左轴柱形</span><span><i class="dot orange"></i>详情页浏览次数 · 左轴柱形</span><span><i class="dot green line-key"></i>购买人数 · 右轴折线</span></div></div><div class="volume-scroll"><svg id="volume-chart" role="group" aria-label="七种阶段组合的触达、详情页浏览柱形图与购买人数折线图；触达人数除以一百后与浏览次数共用左轴，购买人数折线使用右侧次坐标轴；点选组合查看原始准确数值"></svg></div><div id="volume-readout" class="volume-readout" aria-live="polite"></div></section>
     <div class="sectionhead"><h2>各阶段组合的 ROAS 与广告花费</h2></div>
     <section class="panel roas-panel"><div class="chart-legend-head"><div class="legend"><span><i class="dot cyan"></i>广告花费 · 左轴（柱形）</span><span><i class="dot orange"></i>ROAS · 右轴（折线）</span></div></div><div class="volume-scroll"><svg id="phase-roas-chart" role="group" aria-label="七种阶段组合的广告花费柱形图和 ROAS 折线图，使用左右双坐标轴；点选图形查看具体数值"></svg></div><div id="roas-spend-readout" class="volume-readout" aria-live="polite" hidden></div></section>
 
@@ -153,25 +153,29 @@ td{font-size:13px}
     function renderVolumeChart(){
       const chart=$('volume-chart');chart.replaceChildren();
       const fixed=phaseOrder.map(byId);
-       const width=1230,height=460,left=105,right=50,plotWidth=width-left-right,step=plotWidth/fixed.length;
+       const width=1230,height=460,left=105,right=120,plotWidth=width-left-right,step=plotWidth/fixed.length;
       const top=64,base=360,plotHeight=base-top;
       chart.setAttribute('viewBox','0 0 '+width+' '+height);
       chart.appendChild(svgEl('title',{},'七种阶段组合的触达、详情页浏览柱形图与购买人数折线图'));
-       chart.appendChild(svgEl('desc',{},'每个阶段组合有两根并排柱及一个绿色折线点。蓝色触达人数先除以一百，橙色详情页浏览与绿色购买人数保持原值，三者按展示值共用线性刻度；点选组合可读取未缩放的原始数值。'));
+       chart.appendChild(svgEl('desc',{},'每个阶段组合有两根并排柱及一个绿色折线点。蓝色触达人数先除以一百，与橙色详情页浏览使用左轴；绿色购买人数保持原值，使用右侧次坐标轴。左右轴刻度不同，跨指标图形高度不代表原始人数比例；点选组合可读取原始数值。'));
        const reachDivisor=100;
       const barSeries=[
          {key:'reach',label:'触达人数',color:chartColors.reach},
          {key:'dpv',label:'详情页浏览',color:chartColors.dpv}
       ];
        const displayed=(spec,value)=>spec.key==='reach'?value/reachDivisor:value;
-       const peak=Math.max(1,...fixed.flatMap(d=>[...barSeries.map(spec=>known(d[spec.key])?displayed(spec,d[spec.key]):0),known(d.buyers)?d.buyers:0]));
+       const peak=Math.max(1,...fixed.flatMap(d=>barSeries.map(spec=>known(d[spec.key])?displayed(spec,d[spec.key]):0)));
        const unit=Math.pow(10,Math.floor(Math.log10(peak/4)));
        const axisMax=Math.max(4,Math.ceil(peak/unit)*unit);
-       chart.appendChild(svgEl('text',{class:'volume-axis blue',x:left-12,y:37,'text-anchor':'end'},'展示值'));
+       const buyerPeak=Math.max(0,...fixed.map(d=>known(d.buyers)?d.buyers:0));
+       const buyerAxisMax=4*Math.max(1,Math.ceil(buyerPeak/4));
+       chart.appendChild(svgEl('text',{class:'volume-axis blue',x:left-12,y:37,'text-anchor':'end'},'触达÷100 / 浏览'));
+       chart.appendChild(svgEl('text',{class:'volume-axis green',x:width-right+12,y:37},'购买人数'));
       for(let tick=0;tick<=4;tick++){
         const y=base-tick*plotHeight/4;
         chart.appendChild(svgEl('line',{class:'volume-grid',x1:left,y1:y,x2:width-right,y2:y}));
          chart.appendChild(svgEl('text',{class:'volume-axis blue',x:left-12,y:y+4,'text-anchor':'end'},integer(axisMax*tick/4)));
+         chart.appendChild(svgEl('text',{class:'volume-axis green',x:width-right+12,y:y+4},integer(buyerAxisMax*tick/4)));
       }
       const buyerPoints=[];
       fixed.forEach((d,index)=>{
@@ -184,7 +188,7 @@ td{font-size:13px}
            bar.appendChild(svgEl('title',{},d.name+'：'+spec.label+' '+integer(value)+(spec.key==='reach'?'（柱形÷100）':'')));
           chart.appendChild(bar);
         });
-        buyerPoints.push({x:center+29,y:known(d.buyers)?base-d.buyers/axisMax*plotHeight:null,d});
+        buyerPoints.push({x:center+29,y:known(d.buyers)?base-d.buyers/buyerAxisMax*plotHeight:null,d});
         const label=svgEl('text',{class:'volume-x',x:center,y:395,'text-anchor':'middle'});
         const parts=d.id==='all'?['预热+活动','+返场']:[d.name.replace(/ /g,'')];
         parts.forEach((part,line)=>label.appendChild(svgEl('tspan',{x:center,dy:line?16:0},part)));

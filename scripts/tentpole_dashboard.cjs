@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const vm = require('vm');
 
 const TEMPLATE = path.join(__dirname, '..', 'assets', 'dashboard_template.html');
-const TEMPLATE_SHA256 = '8128e4cdfa905ee3317b2c5ddc2793f9b833faeea1732768f9a5468ddc32ac76';
+const TEMPLATE_SHA256 = 'c5977f03319ffff83b1138976c9596ca309d6eac4d47ba253912397e8735ed61';
 const STAGES = ['预热', '活动', '返场'];
 const ORDER = [
   { mask: 1, id: 'up', name: '仅预热' },

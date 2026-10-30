@@ -103,12 +103,14 @@ try {
   assert.strictEqual(volumeBars.length, 14, 'reach and DPV have one bar per phase');
   assert.strictEqual(buyerPoints.length, 7, 'buyers have one line marker per phase');
   assert.strictEqual(ui['volume-chart'].children.filter(item => item.tag === 'polyline' && item.attrs.class === 'volume-buyer-line').length, 1);
+  const buyerAxisLabels = ui['volume-chart'].children.filter(item => item.tag === 'text' && item.attrs.class === 'volume-axis green').map(item => item.textContent);
+  assert.deepStrictEqual(buyerAxisLabels, ['购买人数', '0', '5', '10', '15', '20'], 'right axis shows the buyer scale');
   for (let index = 0; index < 7; index++) {
     const heights = volumeBars.slice(index * 2, index * 2 + 2).map(item => Number(item.attrs.height));
     const mask = masks[index];
     const reach = 500 + mask * 10, dpv = 50 + mask, buyers = 10 + mask;
     assert(Math.abs(heights[1] / heights[0] - dpv / (reach / 100)) < 1e-12, `phase ${index}: DPV bar must reflect its true proportion to scaled reach`);
-    assert(Math.abs((360 - Number(buyerPoints[index].attrs.cy)) / heights[0] - buyers / (reach / 100)) < 1e-12, `phase ${index}: buyer line point must reflect its true proportion to scaled reach`);
+    assert(Math.abs((360 - Number(buyerPoints[index].attrs.cy)) / 296 - buyers / 20) < 1e-12, `phase ${index}: buyer line point must follow the right axis`);
   }
   let chart = ui['phase-roas-chart'];
   assert.strictEqual(chart.children.filter(item => item.tag === 'rect' && item.attrs.class === 'volume-bar').length, 7);
@@ -162,6 +164,7 @@ try {
   volumeBars = ui['volume-chart'].children.filter(item => item.tag === 'rect' && item.attrs.class === 'volume-bar');
   buyerPoints = ui['volume-chart'].children.filter(item => item.tag === 'circle' && item.attrs.class === 'volume-buyer-point');
   assert.strictEqual(Number(volumeBars[4 * 2 + 1].attrs.height), 0, 'zero DPV must remain zero');
+  assert.strictEqual(Number(buyerPoints[3].attrs.cy), 360, 'zero buyers stay on the right-axis baseline');
   assert(Number(buyerPoints[4].attrs.cy) < 360, 'positive buyers remain above zero when DPV is zero');
   assert.match(ui['detail-body'].children.find(item => item.dataset.id === 'up-event').innerHTML, /<td>0\.00<\/td>/);
 
@@ -193,7 +196,7 @@ try {
   assert.notStrictEqual(run('inspect', badFile).status, 0, 'missing fields must fail');
   fs.writeFileSync(mapFile, JSON.stringify({ '1': '预热', '2': '活动', '3': '未知' }), 'utf8');
   assert.notStrictEqual(run('build', numericFile, [`--map-file=${mapFile}`, `--output=${output}`]).status, 0, 'unconfirmed stage must fail');
-  console.log('Self-test passed: path mapping, reach/100 shared-axis bars and buyer line proportions, zero-value exception, zero spend, evidence-based blank values, unresolved blanks, chart interaction, missing duration and fields.');
+  console.log('Self-test passed: path mapping, left-axis reach/100 and DPV bars, right-axis buyer line, zero-value exception, zero spend, evidence-based blank values, unresolved blanks, chart interaction, missing duration and fields.');
 } finally {
   if (path.dirname(dir) !== os.tmpdir() || !path.basename(dir).startsWith('amc-tentpole-skill-test-')) throw new Error('Unsafe temporary cleanup target');
   fs.rmSync(dir, { recursive: true, force: true });
