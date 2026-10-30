@@ -1,0 +1,4 @@
+interface:
+  display_name: "跨境吴老师 AMC Tentpole 阶段重叠看板 Skill"
+  short_description: "核验 AMC 阶段重叠 CSV 并生成固定版式离线 BI 看板"
+  default_prompt: "使用 $kuajing-wulaoshi-amc-tentpole-overlap-dashboard，根据我上传的 Tentpole Phase Overlap CSV 生成看板。"
