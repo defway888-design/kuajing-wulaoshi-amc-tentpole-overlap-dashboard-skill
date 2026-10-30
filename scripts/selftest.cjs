@@ -98,6 +98,14 @@ try {
   let ui = render(output);
   assert.strictEqual(ui['days-chart'].children.length, 7);
   assert.strictEqual(ui['detail-body'].children.length, 7);
+  let volumeBars = ui['volume-chart'].children.filter(item => item.tag === 'rect' && item.attrs.class === 'volume-bar');
+  for (let index = 0; index < 7; index++) {
+    const heights = volumeBars.slice(index * 3, index * 3 + 3).map(item => Number(item.attrs.height));
+    const mask = masks[index];
+    const reach = 500 + mask * 10, dpv = 50 + mask, buyers = 10 + mask;
+    assert(Math.abs(heights[1] / heights[0] - dpv / (reach / 100)) < 1e-12, `phase ${index}: DPV bar must reflect its true proportion to scaled reach`);
+    assert(Math.abs(heights[2] / heights[0] - buyers / (reach / 100)) < 1e-12, `phase ${index}: buyer bar must reflect its true proportion to scaled reach`);
+  }
   let chart = ui['phase-roas-chart'];
   assert.strictEqual(chart.children.filter(item => item.tag === 'rect' && item.attrs.class === 'volume-bar').length, 7);
   assert.strictEqual(chart.children.filter(item => item.tag === 'circle').length, 7);
@@ -147,6 +155,9 @@ try {
   ui = render(output);
   assert.notStrictEqual(ui['k-sales'].textContent, '—');
   assert.strictEqual(ui['phase-roas-chart'].children.filter(item => item.tag === 'circle').length, 7);
+  volumeBars = ui['volume-chart'].children.filter(item => item.tag === 'rect' && item.attrs.class === 'volume-bar');
+  assert.strictEqual(Number(volumeBars[4 * 3 + 1].attrs.height), 0, 'zero DPV must remain zero');
+  assert(Number(volumeBars[4 * 3 + 2].attrs.height) > 0, 'purchases remain visible when DPV is zero');
   assert.match(ui['detail-body'].children.find(item => item.dataset.id === 'up-event').innerHTML, /<td>0\.00<\/td>/);
 
   writeCsv(blankFile, { 1: '1', 2: '2', 4: '3' }, null, false, {
@@ -176,7 +187,7 @@ try {
   assert.notStrictEqual(run('inspect', badFile).status, 0, 'missing fields must fail');
   fs.writeFileSync(mapFile, JSON.stringify({ '1': '预热', '2': '活动', '3': '未知' }), 'utf8');
   assert.notStrictEqual(run('build', numericFile, [`--map-file=${mapFile}`, `--output=${output}`]).status, 0, 'unconfirmed stage must fail');
-  console.log('Self-test passed: path mapping, zero spend, evidence-based blank values, unresolved blanks, chart interaction, missing duration and fields.');
+  console.log('Self-test passed: path mapping, reach/100 shared-axis bar proportions and zero-value exception, zero spend, evidence-based blank values, unresolved blanks, chart interaction, missing duration and fields.');
 } finally {
   if (path.dirname(dir) !== os.tmpdir() || !path.basename(dir).startsWith('amc-tentpole-skill-test-')) throw new Error('Unsafe temporary cleanup target');
   fs.rmSync(dir, { recursive: true, force: true });

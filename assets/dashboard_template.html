@@ -101,7 +101,7 @@ td{font-size:13px}
     <section class="panel days-panel"><div class="sectionhead"><h2>不同阶段覆盖天数</h2></div><div id="days-chart"></div></section>
 
     <div class="sectionhead"><h2>各阶段组合的触达、详情页浏览、购买人数</h2></div>
-    <section class="panel"><div class="chart-legend-head"><div class="legend"><span><i class="dot cyan"></i>触达人数 · 左轴</span><span><i class="dot orange"></i>详情页浏览次数 · 右轴</span><span><i class="dot green"></i>购买人数 · 外侧轴</span></div></div><div class="volume-scroll"><svg id="volume-chart" role="group" aria-label="七种阶段组合的触达人数、详情页浏览次数和购买人数并排柱形图，三项指标分别使用独立刻度"></svg></div><div id="volume-readout" class="volume-readout" aria-live="polite"></div></section>
+    <section class="panel"><div class="chart-legend-head"><div class="legend"><span><i class="dot cyan"></i>触达人数（÷100）</span><span><i class="dot orange"></i>详情页浏览次数</span><span><i class="dot green"></i>购买人数</span></div></div><div class="volume-scroll"><svg id="volume-chart" role="group" aria-label="七种阶段组合的三指标并排柱形图；触达人数除以一百后与浏览、购买原值共用线性刻度；点选组合查看原始准确数值"></svg></div><div id="volume-readout" class="volume-readout" aria-live="polite"></div></section>
     <div class="sectionhead"><h2>各阶段组合的 ROAS 与广告花费</h2></div>
     <section class="panel roas-panel"><div class="chart-legend-head"><div class="legend"><span><i class="dot cyan"></i>广告花费 · 左轴（柱形）</span><span><i class="dot orange"></i>ROAS · 右轴（折线）</span></div></div><div class="volume-scroll"><svg id="phase-roas-chart" role="group" aria-label="七种阶段组合的广告花费柱形图和 ROAS 折线图，使用左右双坐标轴；点选图形查看具体数值"></svg></div><div id="roas-spend-readout" class="volume-readout" aria-live="polite" hidden></div></section>
 
@@ -150,36 +150,35 @@ td{font-size:13px}
     function renderVolumeChart(){
       const chart=$('volume-chart');chart.replaceChildren();
       const fixed=phaseOrder.map(byId);
-      const width=1230,height=460,left=105,right=170,plotWidth=width-left-right,step=plotWidth/fixed.length;
+       const width=1230,height=460,left=105,right=50,plotWidth=width-left-right,step=plotWidth/fixed.length;
       const top=64,base=360,plotHeight=base-top;
       chart.setAttribute('viewBox','0 0 '+width+' '+height);
       chart.appendChild(svgEl('title',{},'七种阶段组合的触达、详情页浏览与购买人数并排柱形图'));
-      chart.appendChild(svgEl('desc',{},'每个阶段组合有三根并排柱。蓝色触达人数使用左轴，橙色详情页浏览次数使用右轴，绿色购买人数使用最右侧坐标轴。每项指标采用独立线性刻度，低于六像素的柱按六像素显示。'));
+       chart.appendChild(svgEl('desc',{},'每个阶段组合有三根并排柱。蓝色触达人数先除以一百，橙色详情页浏览和绿色购买人数保持原值，三者按展示值共用线性刻度；点选组合可读取未缩放的原始数值。'));
+       const reachDivisor=100;
       const series=[
-        {key:'reach',label:'触达人数',color:chartColors.reach,axisClass:'blue',axisX:left-12,anchor:'end'},
-        {key:'dpv',label:'详情页浏览',color:chartColors.dpv,axisClass:'orange',axisX:width-right+14,anchor:'start'},
-        {key:'buyers',label:'购买人数',color:chartColors.buyers,axisClass:'green',axisX:width-right+94,anchor:'start'}
+         {key:'reach',label:'触达人数',color:chartColors.reach},
+         {key:'dpv',label:'详情页浏览',color:chartColors.dpv},
+         {key:'buyers',label:'购买人数',color:chartColors.buyers}
       ];
-      series.forEach(spec=>{
-        const peak=Math.max(1,...fixed.map(d=>known(d[spec.key]) ? d[spec.key] : 0));
-        const unit=Math.pow(10,Math.floor(Math.log10(peak/4)));
-        spec.axisMax=Math.max(4,Math.ceil(peak/unit)*unit);
-        chart.appendChild(svgEl('text',{class:'volume-axis '+spec.axisClass,x:spec.axisX,y:37,'text-anchor':spec.anchor},spec.label));
-      });
+       const displayed=(spec,value)=>spec.key==='reach'?value/reachDivisor:value;
+       const peak=Math.max(1,...fixed.flatMap(d=>series.map(spec=>known(d[spec.key])?displayed(spec,d[spec.key]):0)));
+       const unit=Math.pow(10,Math.floor(Math.log10(peak/4)));
+       const axisMax=Math.max(4,Math.ceil(peak/unit)*unit);
+       chart.appendChild(svgEl('text',{class:'volume-axis blue',x:left-12,y:37,'text-anchor':'end'},'展示值'));
       for(let tick=0;tick<=4;tick++){
         const y=base-tick*plotHeight/4;
         chart.appendChild(svgEl('line',{class:'volume-grid',x1:left,y1:y,x2:width-right,y2:y}));
-        series.forEach(spec=>chart.appendChild(svgEl('text',{class:'volume-axis '+spec.axisClass,x:spec.axisX,y:y+4,'text-anchor':spec.anchor},integer(spec.axisMax*tick/4))));
+         chart.appendChild(svgEl('text',{class:'volume-axis blue',x:left-12,y:y+4,'text-anchor':'end'},integer(axisMax*tick/4)));
       }
       fixed.forEach((d,index)=>{
         const center=left+(index+.5)*step;
-        series.forEach((spec,seriesIndex)=>{
-          const value=d[spec.key];
-          if(!known(value)) return;
-          const proportionalHeight=value/spec.axisMax*plotHeight;
-          const barHeight=value>0?Math.max(6,proportionalHeight):0;
+         series.forEach((spec,seriesIndex)=>{
+           const value=d[spec.key];
+           if(!known(value)) return;
+           const barHeight=displayed(spec,value)/axisMax*plotHeight;
           const bar=svgEl('rect',{class:'volume-bar',x:center+(seriesIndex-1)*29-11,y:base-barHeight,width:22,height:barHeight,fill:spec.color,rx:3});
-          bar.appendChild(svgEl('title',{},d.name+'：'+spec.label+' '+integer(value)));
+           bar.appendChild(svgEl('title',{},d.name+'：'+spec.label+' '+integer(value)+(spec.key==='reach'?'（柱形÷100）':'')));
           chart.appendChild(bar);
         });
         const label=svgEl('text',{class:'volume-x',x:center,y:395,'text-anchor':'middle'});
