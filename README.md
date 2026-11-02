@@ -24,10 +24,10 @@
 
 ## 启动方式
 
-上传本次 AMC CSV，然后发送：
+发送以下指令启动 Skill；如果尚未上传报表，Skill 会提示你上传亚马逊营销云 AMC 中 Tentpole phase overlap Case 运行后导出的 CSV：
 
 ```text
-使用 $kuajing-wulaoshi-amc-tentpole-overlap-dashboard，根据我上传的 Tentpole Phase Overlap CSV 生成看板。
+使用 $kuajing-wulaoshi-amc-tentpole-overlap-dashboard 生成 Tentpole Phase Overlap 数据看板；若我尚未上传 AMC 报表，请先提示我上传。
 ```
 
 ## 执行结果与失败边界
@@ -48,6 +48,11 @@ Skill 先检查 CSV 的字段、七种组合和数值格式，再依次请你选
 - [`scripts/selftest.cjs`](scripts/selftest.cjs)：本地自检程序。
 
 ## 版本更新记录
+
+### v1.0.5｜2026-11-02
+
+- 启动 Skill 且本次任务尚未提供 CSV 时，明确提示上传亚马逊营销云 AMC 中 Tentpole phase overlap Case 运行后导出的数据报表；收到报表后才进入核验。
+- 调整默认启动语和用户操作说明。数据核验、阶段确认与固定看板格式未变。
 
 ### v1.0.4｜2026-10-31
 

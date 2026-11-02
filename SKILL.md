@@ -9,7 +9,7 @@ description: 用 Amazon Marketing Cloud 的 Tentpole Phase Overlap 单份 CSV，
 
 ## 开始
 
-当用户要求生成本看板，先说：`跨境吴老师正在准备 Tentpole Phase Overlap 数据看板...`。提示用户上传**一份** Amazon Marketing Cloud 的 Tentpole Phase Overlap ASIN conversions CSV。若用户已经提供文件，直接进入核验。不要读取发布者电脑上的固定路径，也不要把示例 CSV 或过去对话中的阶段映射当成本次输入。
+当用户运行本 Skill 或要求生成本看板，先说：`跨境吴老师正在准备 Tentpole Phase Overlap 数据看板...`。若当前任务尚未提供报表，紧接着向用户发送：`跨境吴老师需要您上传亚马逊营销云 AMC 中 Tentpole phase overlap 这个 Case 运行后导出的 CSV 数据报表，才能生成看板。请上传文件。` 等待用户上传后再核验；不得使用过去任务的 CSV 代替本次输入。若用户在本次任务中已经提供文件，直接进入核验，不重复要求上传。不要读取发布者电脑上的固定路径，也不要把示例 CSV 或过去对话中的阶段映射当成本次输入。
 
 ## 核验、确认、生成
 
